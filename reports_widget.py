@@ -1,6 +1,6 @@
 """
-Widget untuk tab laporan dan visualisasi data dari Google Spreadsheet
-Simplified version - using only legacy PDF methods
+Updated Reports Widget with Compact Professional PDF
+Using the new CompactPDFService for better layout
 """
 
 import sys
@@ -15,10 +15,11 @@ from PyQt5.QtGui import QFont, QPixmap, QIcon, QPalette, QColor
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.dates as mdates
-from collections import defaultdict
 import numpy as np
+
+# Import the new compact PDF service
+from pdf_service import CompactPDFService
 
 class DataVisualizationCanvas(FigureCanvas):
     """Canvas untuk visualisasi data dengan matplotlib"""
@@ -145,68 +146,6 @@ class DataVisualizationCanvas(FigureCanvas):
         
         plt.tight_layout()
         self.draw()
-    
-    def plot_summary_chart(self, stats):
-        """Plot chart ringkasan statistik standar"""
-        self.figure.clear()
-        
-        if not stats or not isinstance(stats, dict):
-            ax = self.figure.add_subplot(111)
-            ax.text(0.5, 0.5, 'Tidak ada data statistik', 
-                   ha='center', va='center', transform=ax.transAxes, fontsize=10)
-            ax.set_title('Ringkasan Statistik', fontsize=12, fontweight='bold')
-            self.draw()
-            return
-        
-        # Create simple layout
-        fig = self.figure
-        fig.clear()
-        
-        ax1 = fig.add_subplot(1, 2, 1)  # Pie chart
-        ax2 = fig.add_subplot(1, 2, 2)  # Bar chart
-        
-        # Pie chart for directional traffic
-        labels = ['Jalur A', 'Jalur B']
-        sizes = [stats.get('total_up', 0) or 0, stats.get('total_down', 0) or 0]
-        colors = ['#2196F3', '#FF5722']
-        
-        if sum(sizes) > 0:
-            wedges, texts, autotexts = ax1.pie(sizes, labels=labels, colors=colors, 
-                                             autopct='%1.1f%%', startangle=90)
-            ax1.set_title('Distribusi Arah Traffic', fontsize=11, fontweight='bold')
-            
-            for autotext in autotexts:
-                autotext.set_color('white')
-                autotext.set_fontweight('bold')
-        else:
-            ax1.text(0.5, 0.5, 'Tidak ada data', ha='center', va='center', 
-                    transform=ax1.transAxes, fontsize=10)
-            ax1.set_title('Distribusi Arah Traffic', fontsize=11, fontweight='bold')
-        
-        # Bar chart for summary stats
-        categories = ['Total\nKendaraan', 'Jalur A', 'Jalur B', 'Rata-rata\nper Hari']
-        values = [
-            stats.get('total_vehicles', 0) or 0,
-            stats.get('total_up', 0) or 0,
-            stats.get('total_down', 0) or 0,
-            stats.get('average_per_day', 0) or 0
-        ]
-        bar_colors = ['#4CAF50', '#2196F3', '#FF5722', '#FF9800']
-        
-        bars = ax2.bar(categories, values, color=bar_colors, alpha=0.8)
-        ax2.set_title('Ringkasan Statistik', fontsize=11, fontweight='bold')
-        ax2.set_ylabel('Jumlah', fontsize=10)
-        ax2.grid(True, alpha=0.3, axis='y')
-        
-        # Add value labels on bars
-        max_val = max(values) if values else 1
-        for bar, value in zip(bars, values):
-            height = bar.get_height()
-            ax2.text(bar.get_x() + bar.get_width()/2., height + max_val*0.02,
-                    f'{int(value):,}', ha='center', va='bottom', fontweight='bold', fontsize=9)
-        
-        plt.tight_layout()
-        self.draw()
 
 class DataLoaderThread(QThread):
     """Thread untuk loading data dari Google Sheets"""
@@ -305,13 +244,14 @@ class DataLoaderThread(QThread):
         }
 
 class ReportsWidget(QWidget):
-    """Widget utama untuk tab laporan - simplified version"""
+    """Widget utama untuk tab laporan dengan compact PDF"""
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.data_loader_thread = None
         self.current_data = []
         self.current_stats = {}
+        self.pdf_service = CompactPDFService()  # Initialize compact PDF service
         self.setup_ui()
         self.setup_connections()
         
@@ -451,7 +391,7 @@ class ReportsWidget(QWidget):
         
         layout.addWidget(stats_group)
         
-        # Quick actions
+        # Quick actions with updated PDF options
         actions_group = QGroupBox("Aksi Cepat")
         actions_layout = QVBoxLayout(actions_group)
         
@@ -459,12 +399,17 @@ class ReportsWidget(QWidget):
         self.export_btn.setStyleSheet("QPushButton { background-color: #9C27B0; color: white; padding: 8px; }")
         self.export_btn.clicked.connect(self.export_data)
         
-        self.print_btn = QPushButton("Export PDF Report")
-        self.print_btn.setStyleSheet("QPushButton { background-color: #607D8B; color: white; padding: 8px; }")
-        self.print_btn.clicked.connect(self.print_report)
+        self.compact_pdf_btn = QPushButton("Export PDF (Compact)")
+        self.compact_pdf_btn.setStyleSheet("QPushButton { background-color: #607D8B; color: white; padding: 8px; }")
+        self.compact_pdf_btn.clicked.connect(self.export_compact_pdf)
+        
+        self.single_page_pdf_btn = QPushButton("Export PDF (1 Page)")
+        self.single_page_pdf_btn.setStyleSheet("QPushButton { background-color: #795548; color: white; padding: 8px; }")
+        self.single_page_pdf_btn.clicked.connect(self.export_single_page_pdf)
         
         actions_layout.addWidget(self.export_btn)
-        actions_layout.addWidget(self.print_btn)
+        actions_layout.addWidget(self.compact_pdf_btn)
+        actions_layout.addWidget(self.single_page_pdf_btn)
         
         layout.addWidget(actions_group)
         layout.addStretch()
@@ -534,7 +479,6 @@ class ReportsWidget(QWidget):
         """Handle stats loaded signal"""
         self.current_stats = stats
         self.update_stats_display(stats)
-        self.chart_canvas.plot_summary_chart(stats)
     
     def on_error(self, error_msg):
         """Handle error signal"""
@@ -621,298 +565,71 @@ class ReportsWidget(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Gagal mengekspor data: {str(e)}")
     
-    def print_report(self):
-        """Export PDF report - simplified version"""
+    def export_compact_pdf(self):
+        """Export compact professional PDF report"""
         if not self.current_data:
             QMessageBox.warning(self, "Peringatan", "Tidak ada data untuk dibuatkan laporan!")
             return
             
         try:
             filename, _ = QFileDialog.getSaveFileName(
-                self, "Simpan Laporan PDF", f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                self, "Simpan Laporan PDF (Compact)", f"compact_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
                 "PDF Files (*.pdf);;All Files (*)"
             )
             if not filename:
                 return
 
-            # Generate PDF using matplotlib method
-            self.generate_pdf_report(filename)
+            # Get date range
+            date_range = f"{self.start_date.date().toString('yyyy-MM-dd')} s/d {self.end_date.date().toString('yyyy-MM-dd')}"
+            
+            # Generate compact PDF
+            success = self.pdf_service.generate_compact_pdf(
+                self.current_data, 
+                self.current_stats, 
+                filename, 
+                date_range
+            )
+            
+            if success:
+                QMessageBox.information(self, "Berhasil", f"Laporan PDF compact berhasil dibuat: {filename}")
+            else:
+                QMessageBox.warning(self, "Peringatan", "Gagal membuat PDF. Periksa data dan coba lagi.")
                 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Gagal membuat PDF: {str(e)}")
     
-    def generate_pdf_report(self, filename):
-        """Generate PDF report using matplotlib - legacy method"""
+    def export_single_page_pdf(self):
+        """Export ultra-compact single page PDF"""
+        if not self.current_data:
+            QMessageBox.warning(self, "Peringatan", "Tidak ada data untuk dibuatkan laporan!")
+            return
+            
         try:
-            import pandas as pd
-            
-            df = pd.DataFrame(self.current_data)
+            filename, _ = QFileDialog.getSaveFileName(
+                self, "Simpan Laporan PDF (1 Halaman)", f"single_page_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                "PDF Files (*.pdf);;All Files (*)"
+            )
+            if not filename:
+                return
+
+            # Get date range
             date_range = f"{self.start_date.date().toString('yyyy-MM-dd')} s/d {self.end_date.date().toString('yyyy-MM-dd')}"
-
-            with PdfPages(filename) as pdf:
-                # Page 1: Summary and Info
-                fig1 = plt.figure(figsize=(8.27, 11.69), facecolor='white')
-                ax = fig1.add_subplot(111)
-                ax.axis('off')
-                
-                # Header
-                ax.text(0.5, 0.95, 'LAPORAN TRAFFIC ANALYSIS', fontsize=18, fontweight='bold', 
-                       ha='center', va='top', color='#2E7D32')
-                ax.text(0.5, 0.90, 'Data Traffic Jalan Layang MBZ', fontsize=12, 
-                       ha='center', va='top', color='#666')
-                
-                # Meta info
-                ax.text(0.1, 0.82, f'Periode: {date_range}', fontsize=11, va='top', fontweight='500')
-                ax.text(0.1, 0.78, f'Tanggal Generate: {datetime.now().strftime("%d %B %Y %H:%M")}', 
-                       fontsize=11, va='top', fontweight='500')
-                
-                # Divider line
-                ax.plot([0.1, 0.9], [0.74, 0.74], 'k-', linewidth=0.5)
-                
-                # Summary statistics
-                if self.current_stats:
-                    stats = self.current_stats
-                    ax.text(0.1, 0.70, 'RINGKASAN STATISTIK:', fontsize=14, fontweight='bold', 
-                           va='top', color='#2E7D32')
-                    
-                    # Left column stats
-                    y_pos = 0.64
-                    left_stats = [
-                        ('Total Records', f"{stats.get('total_records', 0):,}"),
-                        ('Total Kendaraan', f"{stats.get('total_vehicles', 0):,}"),
-                        ('Rata-rata per Hari', f"{stats.get('average_per_day', 0):.1f}")
-                    ]
-                    
-                    for label, value in left_stats:
-                        ax.text(0.1, y_pos, f'{label}:', fontsize=11, va='top', color='#333')
-                        ax.text(0.45, y_pos, value, fontsize=11, va='top', fontweight='bold', color='#2E7D32')
-                        y_pos -= 0.04
-                    
-                    # Right column stats
-                    y_pos = 0.64
-                    right_stats = [
-                        ('Total Jalur A', f"{stats.get('total_up', 0):,}"),
-                        ('Total Jalur B', f"{stats.get('total_down', 0):,}"),
-                        ('Hari Unik', f"{stats.get('unique_dates', 0):,}")
-                    ]
-                    
-                    for label, value in right_stats:
-                        ax.text(0.55, y_pos, f'{label}:', fontsize=11, va='top', color='#333')
-                        ax.text(0.85, y_pos, value, fontsize=11, va='top', fontweight='bold', color='#FF5722')
-                        y_pos -= 0.04
-                
-                # Add small chart preview if data exists
-                if self.current_data and len(self.current_data) > 0:
-                    ax.text(0.1, 0.45, 'PREVIEW GRAFIK:', fontsize=12, fontweight='bold', 
-                           va='top', color='#2E7D32')
-                    
-                    # Create mini chart
-                    dates, totals = [], []
-                    for record in self.current_data[:10]:  # Show only first 10 records
-                        try:
-                            date_str = record.get('Tanggal', '')
-                            if date_str and date_str.strip():
-                                date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-                                total_val = int(record.get('Total', 0) or 0)
-                                dates.append(date_obj)
-                                totals.append(total_val)
-                        except:
-                            continue
-                    
-                    if dates and totals:
-                        # Create inset axes for mini chart
-                        from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-                        mini_ax = inset_axes(ax, width="70%", height="25%", 
-                                           bbox_to_anchor=(0.1, 0.15, 0.8, 0.25), 
-                                           bbox_transform=ax.transData, loc='lower left')
-                        
-                        mini_ax.plot(dates, totals, 'o-', linewidth=2, markersize=4, color='#2E7D32')
-                        mini_ax.fill_between(dates, totals, alpha=0.3, color='#4CAF50')
-                        mini_ax.set_title('Traffic Trend (Sample)', fontsize=10, pad=10)
-                        mini_ax.tick_params(axis='x', labelsize=8, rotation=45)
-                        mini_ax.tick_params(axis='y', labelsize=8)
-                        mini_ax.grid(True, alpha=0.3)
-                
-                # Footer
-                ax.text(0.5, 0.05, 'Halaman 1 - Ringkasan', fontsize=10, ha='center', 
-                       va='bottom', style='italic', color='#666')
-                
-                pdf.savefig(fig1, bbox_inches='tight', facecolor='white')
-                plt.close()
-
-                # Page 2: Detailed Charts
-                if self.current_data and len(self.current_data) > 0:
-                    fig2 = plt.figure(figsize=(8.27, 11.69), facecolor='white')
-                    
-                    # Create the same chart as canvas but for PDF
-                    dates, totals, ups, downs = [], [], [], []
-                    
-                    for record in self.current_data:
-                        try:
-                            date_str = record.get('Tanggal', '')
-                            if not date_str or date_str.strip() == '':
-                                continue
-                                
-                            date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-                            total_val = record.get('Total', 0)
-                            up_val = record.get('Jalur A', record.get('Naik', 0))
-                            down_val = record.get('Jalur B', record.get('Turun', 0))
-                            
-                            total_int = int(total_val) if total_val not in [None, '', '0'] else 0
-                            up_int = int(up_val) if up_val not in [None, '', '0'] else 0
-                            down_int = int(down_val) if down_val not in [None, '', '0'] else 0
-                            
-                            dates.append(date_obj)
-                            totals.append(total_int)
-                            ups.append(up_int)
-                            downs.append(down_int)
-                        except:
-                            continue
-                    
-                    if dates:
-                        # Title
-                        fig2.suptitle('VISUALISASI DATA TRAFFIC', fontsize=16, fontweight='bold', 
-                                     y=0.95, color='#2E7D32')
-                        
-                        # Main traffic line chart
-                        ax1 = fig2.add_subplot(2, 2, (1, 2))
-                        ax1.plot(dates, totals, 'o-', linewidth=2, markersize=4, color='#2E7D32', 
-                                label='Total Kendaraan')
-                        ax1.fill_between(dates, totals, alpha=0.3, color='#4CAF50')
-                        ax1.set_title('Total Kendaraan Harian', fontsize=12, fontweight='bold', pad=15)
-                        ax1.set_ylabel('Jumlah Kendaraan')
-                        ax1.grid(True, alpha=0.3)
-                        ax1.legend()
-                        
-                        # Format x-axis
-                        if len(dates) > 15:
-                            step = len(dates) // 10
-                            sample_dates = dates[::step]
-                            sample_totals = totals[::step]
-                            ax1.set_xticks(sample_dates)
-                            ax1.set_xticklabels([d.strftime('%d/%m') for d in sample_dates], rotation=45)
-                        else:
-                            ax1.set_xticklabels([d.strftime('%d/%m') for d in dates], rotation=45)
-                        
-                        # Pie chart
-                        ax2 = fig2.add_subplot(2, 2, 3)
-                        total_up = sum(ups)
-                        total_down = sum(downs)
-                        if total_up + total_down > 0:
-                            sizes = [total_up, total_down]
-                            labels = ['Jalur A', 'Jalur B']
-                            colors = ['#2196F3', '#FF5722']
-                            explode = (0.05, 0.05)
-                            
-                            wedges, texts, autotexts = ax2.pie(sizes, labels=labels, colors=colors, 
-                                                             autopct='%1.1f%%', startangle=90, explode=explode)
-                            ax2.set_title('Distribusi Arah Traffic', fontsize=11, fontweight='bold', pad=15)
-                            
-                            for autotext in autotexts:
-                                autotext.set_color('white')
-                                autotext.set_fontweight('bold')
-                        
-                        # Bar chart
-                        ax3 = fig2.add_subplot(2, 2, 4)
-                        width = 0.35
-                        x_pos = np.arange(min(len(dates), 10))  # Limit to 10 bars for readability
-                        
-                        display_dates = dates[:10]
-                        display_ups = ups[:10]
-                        display_downs = downs[:10]
-                        
-                        bars1 = ax3.bar([x - width/2 for x in x_pos], display_ups, width, 
-                                       label='Jalur A', color='#2196F3', alpha=0.8)
-                        bars2 = ax3.bar([x + width/2 for x in x_pos], display_downs, width, 
-                                       label='Jalur B', color='#FF5722', alpha=0.8)
-                        
-                        ax3.set_title('Perbandingan Traffic (10 Hari Pertama)', fontsize=11, fontweight='bold', pad=15)
-                        ax3.set_ylabel('Jumlah Kendaraan')
-                        ax3.grid(True, alpha=0.3, axis='y')
-                        ax3.legend()
-                        
-                        ax3.set_xticks(x_pos)
-                        ax3.set_xticklabels([d.strftime('%d/%m') for d in display_dates], rotation=45)
-                    
-                    plt.tight_layout(rect=[0, 0.03, 1, 0.92])
-                    
-                    # Footer
-                    fig2.text(0.5, 0.02, 'Halaman 2 - Visualisasi Data', fontsize=10, ha='center', 
-                             style='italic', color='#666')
-                    
-                    pdf.savefig(fig2, bbox_inches='tight', facecolor='white')
-                    plt.close()
-
-                # Page 3: Data Table
-                if df is not None and not df.empty:
-                    fig3 = plt.figure(figsize=(8.27, 11.69), facecolor='white')
-                    ax3 = fig3.add_subplot(111)
-                    ax3.axis('off')
-                    
-                    # Header
-                    ax3.text(0.5, 0.95, 'DETAIL DATA TRAFFIC', fontsize=16, fontweight='bold', 
-                            ha='center', va='top', color='#2E7D32')
-                    
-                    # Prepare table data
-                    table_columns = ["No", "Tanggal", "KM", "Periode", "Total", "Jalur A", "Jalur B", "Deskripsi"]
-                    
-                    # Limit to 40 rows for better presentation
-                    display_df = df.head(40)
-                    table_data = []
-                    
-                    for i, (_, row) in enumerate(display_df.iterrows(), 1):
-                        table_row = [
-                            str(i),
-                            str(row.get('Tanggal', '')),
-                            str(row.get('Kilometer', '')),
-                            str(row.get('Periode Jam', '')),
-                            str(row.get('Total', 0) or 0),
-                            str(row.get('Jalur A', row.get('Naik', 0)) or 0),
-                            str(row.get('Jalur B', row.get('Turun', 0)) or 0),
-                            str(row.get('Deskripsi', ''))[:15] + ("..." if len(str(row.get('Deskripsi', ''))) > 15 else "")
-                        ]
-                        table_data.append(table_row)
-                    
-                    if table_data:
-                        # Create table
-                        table = ax3.table(cellText=table_data, colLabels=table_columns, 
-                                         loc='center', cellLoc='center',
-                                         bbox=[0.05, 0.15, 0.9, 0.7])
-                        
-                        table.auto_set_font_size(False)
-                        table.set_fontsize(7)
-                        table.scale(1, 1.5)
-                        
-                        # Style header
-                        for i in range(len(table_columns)):
-                            table[(0, i)].set_text_props(weight='bold', color='white')
-                            table[(0, i)].set_facecolor('#2E7D32')
-                        
-                        # Style body - alternating colors
-                        for i in range(1, len(table_data) + 1):
-                            for j in range(len(table_columns)):
-                                if i % 2 == 0:
-                                    table[(i, j)].set_facecolor('#f8f9fa')
-                                else:
-                                    table[(i, j)].set_facecolor('white')
-                    
-                    # Summary info
-                    ax3.text(0.05, 0.10, f'Menampilkan {min(40, len(df))} dari {len(df)} total record', 
-                            fontsize=10, va='top', color='#666')
-                    ax3.text(0.05, 0.07, f'Filter: {date_range}', fontsize=10, va='top', color='#666')
-                    
-                    # Footer
-                    ax3.text(0.5, 0.02, 'Halaman 3 - Detail Data', fontsize=10, ha='center', 
-                            style='italic', color='#666')
-                    
-                    pdf.savefig(fig3, bbox_inches='tight', facecolor='white')
-                    plt.close()
-
-            QMessageBox.information(self, "Berhasil", f"Laporan PDF berhasil dibuat: {filename}")
             
+            # Generate single page PDF
+            success = self.pdf_service.generate_single_page_pdf(
+                self.current_data, 
+                self.current_stats, 
+                filename, 
+                date_range
+            )
+            
+            if success:
+                QMessageBox.information(self, "Berhasil", f"Laporan PDF 1 halaman berhasil dibuat: {filename}")
+            else:
+                QMessageBox.warning(self, "Peringatan", "Gagal membuat PDF. Periksa data dan coba lagi.")
+                
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Gagal membuat PDF: {str(e)}")
-            print(f"PDF Error details: {e}")
 
 if __name__ == "__main__":
     # Test reports widget
@@ -921,7 +638,7 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     
     window = QMainWindow()
-    window.setWindowTitle("Reports Widget Test - Simplified")
+    window.setWindowTitle("Reports Widget - Compact PDF Version")
     window.setGeometry(100, 100, 1200, 800)
     
     reports_widget = ReportsWidget()
