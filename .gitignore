@@ -1,3 +1,74 @@
+# ---- Python standard ignores ----
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# IDE/editor
+.vscode/
+.idea/
+*.code-workspace
+
+# Caches / tooling
+.mypy_cache/
+.pytest_cache/
+.pytype/
+.coverage
+htmlcov/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# ---- Project data/artifacts ----
+# Datasets and caches
+dataset/
+**/*.cache
+
+# YOLO/Ultralytics runs and outputs
+runs/
+
+# Model weights / large binaries
+weights/
+*.pt
+*.onnx
+
+# Videos and media samples (keep assets/ logos)
+*.mp4
+*.avi
+*.mkv
+*.mov
+*.wmv
+*.asf
+*.flv
+*.webm
+
+# Reports/exports (exclude generated artifacts)
+*.pdf
+*.xlsx
+*.csv
+
+# Credentials & secrets
+credentials/
+*.env
+.env*
+
+# Build/dist artifacts
+build/
+dist/
+*.spec
+
+# Logs
+*.log
+
+# Temporary files
+~$*
+*.tmp
+*.bak
 # Python
 __pycache__/
 *.py[cod]

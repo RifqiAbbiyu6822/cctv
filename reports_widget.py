@@ -1,6 +1,7 @@
 """
 Updated Reports Widget with Compact Professional PDF
 Using the new CompactPDFService for better layout
+Fokus hanya pada deteksi mobil (tidak termasuk bus dan truk)
 """
 
 import sys
@@ -22,15 +23,22 @@ import numpy as np
 from pdf_service import CompactPDFService
 
 class DataVisualizationCanvas(FigureCanvas):
-    """Canvas untuk visualisasi data dengan matplotlib"""
+    """Canvas untuk visualisasi data dengan matplotlib - Layout yang tidak gepeng"""
     
     def __init__(self, parent=None):
-        self.figure = Figure(figsize=(8, 6), dpi=100)
+        # Perbesar figsize dan tingkatkan DPI untuk kualitas yang lebih baik
+        self.figure = Figure(figsize=(12, 8), dpi=120)
         super().__init__(self.figure)
         self.setParent(parent)
         
         # Set basic style
         plt.style.use('default')
+        
+        # Set minimum size untuk canvas
+        self.setMinimumSize(800, 600)
+        
+        # Connect resize event untuk responsive sizing
+        self.resizeEvent = self.on_resize
         
     def plot_daily_traffic(self, data):
         """Plot traffic harian dengan visualisasi standar"""
@@ -85,27 +93,31 @@ class DataVisualizationCanvas(FigureCanvas):
             self.draw()
             return
         
-        # Create simple 2x2 layout
+        # Create responsive grid layout dengan aspect ratio yang tepat
         fig = self.figure
         fig.clear()
         
-        # Main traffic line chart
-        ax1 = fig.add_subplot(2, 2, (1, 2))  # Top row, span 2 columns
-        ax1.plot(dates, totals, marker='o', linewidth=2, markersize=4, color='#2E7D32', label='Total Kendaraan')
-        ax1.fill_between(dates, totals, alpha=0.3, color='#4CAF50')
-        ax1.set_title('Total Kendaraan Harian', fontsize=12, fontweight='bold')
-        ax1.set_ylabel('Jumlah Kendaraan', fontsize=10)
-        ax1.grid(True, alpha=0.3)
-        ax1.legend()
+        # Buat grid layout yang lebih responsif - 2x2 dengan spacing yang tepat
+        gs = fig.add_gridspec(2, 2, hspace=0.3, wspace=0.3, 
+                             left=0.08, right=0.95, top=0.93, bottom=0.08)
         
-        # Format x-axis
+        # Main traffic line chart - Top row, span 2 columns
+        ax1 = fig.add_subplot(gs[0, :])
+        ax1.plot(dates, totals, marker='o', linewidth=3, markersize=6, color='#2E7D32', label='Total Kendaraan')
+        ax1.fill_between(dates, totals, alpha=0.2, color='#4CAF50')
+        ax1.set_title('Total Kendaraan Harian', fontsize=14, fontweight='bold', pad=15)
+        ax1.set_ylabel('Jumlah Kendaraan', fontsize=12)
+        ax1.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
+        ax1.legend(fontsize=11, loc='upper left')
+        
+        # Format x-axis dengan spacing yang lebih baik
         ax1.xaxis.set_major_formatter(mdates.DateFormatter('%d/%m'))
         if len(dates) > 10:
             ax1.xaxis.set_major_locator(mdates.DayLocator(interval=max(1, len(dates)//8)))
-        plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, fontsize=8)
+        plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, fontsize=10)
         
-        # Pie chart
-        ax2 = fig.add_subplot(2, 2, 3)
+        # Pie chart - Bottom left dengan aspect ratio yang tepat
+        ax2 = fig.add_subplot(gs[1, 0])
         total_up = sum(ups)
         total_down = sum(downs)
         if total_up + total_down > 0:
@@ -114,38 +126,82 @@ class DataVisualizationCanvas(FigureCanvas):
             colors = ['#2196F3', '#FF5722']
             
             wedges, texts, autotexts = ax2.pie(sizes, labels=labels, colors=colors, 
-                                             autopct='%1.1f%%', startangle=90)
-            ax2.set_title('Distribusi Arah', fontsize=10, fontweight='bold')
+                                             autopct='%1.1f%%', startangle=90,
+                                             textprops={'fontsize': 10})
+            ax2.set_title('Distribusi Arah', fontsize=12, fontweight='bold', pad=15)
             
+            # Styling untuk pie chart
             for autotext in autotexts:
                 autotext.set_color('white')
                 autotext.set_fontweight('bold')
-                autotext.set_fontsize(8)
+                autotext.set_fontsize(9)
+            
+            for text in texts:
+                text.set_fontsize(10)
+                text.set_fontweight('500')
         else:
             ax2.text(0.5, 0.5, 'Tidak ada\ndata', ha='center', va='center', 
-                    transform=ax2.transAxes, fontsize=8)
-            ax2.set_title('Distribusi Arah', fontsize=10, fontweight='bold')
+                    transform=ax2.transAxes, fontsize=12, color='#666')
+            ax2.set_title('Distribusi Arah', fontsize=12, fontweight='bold', pad=15)
         
-        # Bar chart
-        ax3 = fig.add_subplot(2, 2, 4)
+        # Bar chart - Bottom right dengan spacing yang lebih baik
+        ax3 = fig.add_subplot(gs[1, 1])
         width = 0.35
         x_pos = np.arange(len(dates))
         
-        ax3.bar([d - width/2 for d in x_pos], ups, width, label='Jalur A', color='#2196F3', alpha=0.8)
-        ax3.bar([d + width/2 for d in x_pos], downs, width, label='Jalur B', color='#FF5722', alpha=0.8)
-        ax3.set_title('Perbandingan Traffic', fontsize=10, fontweight='bold')
-        ax3.set_ylabel('Jumlah', fontsize=8)
-        ax3.grid(True, alpha=0.3)
-        ax3.legend(fontsize=8)
+        bars1 = ax3.bar([d - width/2 for d in x_pos], ups, width, label='Jalur A', 
+                       color='#2196F3', alpha=0.8, edgecolor='white', linewidth=0.5)
+        bars2 = ax3.bar([d + width/2 for d in x_pos], downs, width, label='Jalur B', 
+                       color='#FF5722', alpha=0.8, edgecolor='white', linewidth=0.5)
         
-        # Format x-axis for bar chart
+        ax3.set_title('Perbandingan Traffic', fontsize=12, fontweight='bold', pad=15)
+        ax3.set_ylabel('Jumlah', fontsize=11)
+        ax3.set_xlabel('Tanggal', fontsize=11)
+        ax3.grid(True, alpha=0.3, linestyle='-', linewidth=0.5, axis='y')
+        ax3.legend(fontsize=10, loc='upper right')
+        
+        # Format x-axis untuk bar chart dengan spacing yang lebih baik
         step = max(1, len(dates)//6)
         ax3.set_xticks(x_pos[::step])
         ax3.set_xticklabels([dates[i].strftime('%d/%m') for i in range(0, len(dates), step)], 
-                           rotation=45, fontsize=7)
+                           rotation=45, fontsize=9)
         
-        plt.tight_layout()
+        # Tambahkan value labels pada bar chart jika tidak terlalu banyak data
+        if len(dates) <= 10:
+            for i, (bar1, bar2) in enumerate(zip(bars1, bars2)):
+                height1 = bar1.get_height()
+                height2 = bar2.get_height()
+                if height1 > 0:
+                    ax3.text(bar1.get_x() + bar1.get_width()/2., height1 + 0.1,
+                            f'{int(height1)}', ha='center', va='bottom', fontsize=8)
+                if height2 > 0:
+                    ax3.text(bar2.get_x() + bar2.get_width()/2., height2 + 0.1,
+                            f'{int(height2)}', ha='center', va='bottom', fontsize=8)
+        
+        # Apply tight layout dengan padding yang tepat
+        plt.tight_layout(pad=2.0)
         self.draw()
+    
+    def on_resize(self, event):
+        """Handle resize event untuk responsive canvas"""
+        if hasattr(self, 'figure') and self.figure:
+            # Adjust DPI based on size untuk menjaga kualitas
+            size = self.size()
+            width = size.width()
+            height = size.height()
+            
+            # Calculate appropriate DPI
+            base_dpi = 100
+            scale_factor = min(width / 800, height / 600, 2.0)  # Max 2x scaling
+            new_dpi = int(base_dpi * scale_factor)
+            
+            # Update figure DPI if significantly different
+            if abs(new_dpi - self.figure.dpi) > 10:
+                self.figure.dpi = new_dpi
+                self.draw()
+        
+        # Call parent resize event
+        super().resizeEvent(event)
 
 class DataLoaderThread(QThread):
     """Thread untuk loading data dari Google Sheets"""
@@ -244,7 +300,8 @@ class DataLoaderThread(QThread):
         }
 
 class ReportsWidget(QWidget):
-    """Widget utama untuk tab laporan dengan compact PDF"""
+    """Widget utama untuk tab laporan dengan compact PDF
+    Fokus hanya pada deteksi mobil (tidak termasuk bus dan truk)"""
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -259,10 +316,10 @@ class ReportsWidget(QWidget):
         QTimer.singleShot(1000, self.load_data)
     
     def setup_ui(self):
-        """Setup UI untuk reports widget"""
+        """Setup UI untuk reports widget dengan layout yang tidak gepeng"""
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(10, 10, 10, 10)
-        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setSpacing(8)
         
         # Header
         header_label = QLabel("Laporan & Visualisasi Data")
@@ -331,11 +388,13 @@ class ReportsWidget(QWidget):
         right_panel = self.create_charts_panel()
         splitter.addWidget(right_panel)
         
-        # Set splitter proportions
-        splitter.setSizes([300, 700])
-        main_layout.addWidget(splitter)
+        # Set splitter proportions - berikan lebih banyak ruang untuk visualisasi
+        splitter.setSizes([250, 950])  # Stats panel lebih kecil, charts panel lebih besar
+        splitter.setStretchFactor(0, 0)  # Stats panel tidak stretch
+        splitter.setStretchFactor(1, 1)  # Charts panel dapat stretch
+        main_layout.addWidget(splitter, 1)  # Stretch factor untuk responsiveness
         
-        # Data table
+        # Data table dengan height yang terbatas
         table_group = QGroupBox("Data Detail")
         table_layout = QVBoxLayout(table_group)
         
@@ -351,8 +410,12 @@ class ReportsWidget(QWidget):
         self.data_table.setAlternatingRowColors(True)
         self.data_table.setSelectionBehavior(QTableWidget.SelectRows)
         
+        # Batasi tinggi tabel agar tidak mengambil terlalu banyak ruang
+        self.data_table.setMaximumHeight(200)
+        self.data_table.setMinimumHeight(150)
+        
         table_layout.addWidget(self.data_table)
-        main_layout.addWidget(table_group)
+        main_layout.addWidget(table_group, 0)  # No stretch untuk table
     
     def create_stats_panel(self):
         """Buat panel statistik"""
@@ -399,17 +462,12 @@ class ReportsWidget(QWidget):
         self.export_btn.setStyleSheet("QPushButton { background-color: #9C27B0; color: white; padding: 8px; }")
         self.export_btn.clicked.connect(self.export_data)
         
-        self.compact_pdf_btn = QPushButton("Export PDF (Compact)")
-        self.compact_pdf_btn.setStyleSheet("QPushButton { background-color: #607D8B; color: white; padding: 8px; }")
-        self.compact_pdf_btn.clicked.connect(self.export_compact_pdf)
-        
-        self.single_page_pdf_btn = QPushButton("Export PDF (1 Page)")
-        self.single_page_pdf_btn.setStyleSheet("QPushButton { background-color: #795548; color: white; padding: 8px; }")
-        self.single_page_pdf_btn.clicked.connect(self.export_single_page_pdf)
+        self.export_pdf_btn = QPushButton("Export PDF (Lengkap)")
+        self.export_pdf_btn.setStyleSheet("QPushButton { background-color: #2196F3; color: white; padding: 10px; font-weight: bold; }")
+        self.export_pdf_btn.clicked.connect(self.export_complete_pdf)
         
         actions_layout.addWidget(self.export_btn)
-        actions_layout.addWidget(self.compact_pdf_btn)
-        actions_layout.addWidget(self.single_page_pdf_btn)
+        actions_layout.addWidget(self.export_pdf_btn)
         
         layout.addWidget(actions_group)
         layout.addStretch()
@@ -417,20 +475,55 @@ class ReportsWidget(QWidget):
         return panel
     
     def create_charts_panel(self):
-        """Buat panel chart"""
+        """Buat panel chart dengan layout responsif yang tidak gepeng"""
         panel = QWidget()
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(10)
         
-        # Chart tabs
+        # Chart tabs dengan styling yang lebih baik
         chart_group = QGroupBox("Visualisasi Data")
+        chart_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: 600;
+                border: 2px solid #e0e0e0;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 10px;
+                background-color: #fafafa;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0px 8px;
+                color: #333;
+                font-size: 14px;
+                font-weight: 600;
+                background-color: #fafafa;
+            }
+        """)
+        
         chart_layout = QVBoxLayout(chart_group)
+        chart_layout.setContentsMargins(10, 15, 10, 10)
+        chart_layout.setSpacing(10)
         
-        # Chart canvas
+        # Chart canvas dengan sizing yang tepat
         self.chart_canvas = DataVisualizationCanvas(self)
-        chart_layout.addWidget(self.chart_canvas)
+        self.chart_canvas.setStyleSheet("""
+            DataVisualizationCanvas {
+                border: 1px solid #d0d0d0;
+                border-radius: 6px;
+                background-color: white;
+            }
+        """)
         
-        layout.addWidget(chart_group)
+        # Set minimum dan maximum size untuk canvas
+        self.chart_canvas.setMinimumSize(800, 600)
+        self.chart_canvas.setMaximumSize(1600, 1200)
+        
+        chart_layout.addWidget(self.chart_canvas, 1)  # Stretch factor 1 untuk responsiveness
+        
+        layout.addWidget(chart_group, 1)  # Stretch factor 1
         
         return panel
     
@@ -565,15 +658,15 @@ class ReportsWidget(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Gagal mengekspor data: {str(e)}")
     
-    def export_compact_pdf(self):
-        """Export compact professional PDF report"""
+    def export_complete_pdf(self):
+        """Export PDF lengkap dengan semua fitur dalam satu dokumen"""
         if not self.current_data:
             QMessageBox.warning(self, "Peringatan", "Tidak ada data untuk dibuatkan laporan!")
             return
             
         try:
             filename, _ = QFileDialog.getSaveFileName(
-                self, "Simpan Laporan PDF (Compact)", f"compact_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                self, "Simpan Laporan PDF Lengkap", f"complete_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
                 "PDF Files (*.pdf);;All Files (*)"
             )
             if not filename:
@@ -582,8 +675,8 @@ class ReportsWidget(QWidget):
             # Get date range
             date_range = f"{self.start_date.date().toString('yyyy-MM-dd')} s/d {self.end_date.date().toString('yyyy-MM-dd')}"
             
-            # Generate compact PDF
-            success = self.pdf_service.generate_compact_pdf(
+            # Generate complete PDF
+            success = self.pdf_service.generate_complete_pdf(
                 self.current_data, 
                 self.current_stats, 
                 filename, 
@@ -591,45 +684,12 @@ class ReportsWidget(QWidget):
             )
             
             if success:
-                QMessageBox.information(self, "Berhasil", f"Laporan PDF compact berhasil dibuat: {filename}")
+                QMessageBox.information(self, "Berhasil", f"Laporan PDF lengkap berhasil dibuat: {filename}")
             else:
-                QMessageBox.warning(self, "Peringatan", "Gagal membuat PDF. Periksa data dan coba lagi.")
+                QMessageBox.warning(self, "Peringatan", "Gagal membuat PDF lengkap. Periksa data dan coba lagi.")
                 
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Gagal membuat PDF: {str(e)}")
-    
-    def export_single_page_pdf(self):
-        """Export ultra-compact single page PDF"""
-        if not self.current_data:
-            QMessageBox.warning(self, "Peringatan", "Tidak ada data untuk dibuatkan laporan!")
-            return
-            
-        try:
-            filename, _ = QFileDialog.getSaveFileName(
-                self, "Simpan Laporan PDF (1 Halaman)", f"single_page_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-                "PDF Files (*.pdf);;All Files (*)"
-            )
-            if not filename:
-                return
-
-            # Get date range
-            date_range = f"{self.start_date.date().toString('yyyy-MM-dd')} s/d {self.end_date.date().toString('yyyy-MM-dd')}"
-            
-            # Generate single page PDF
-            success = self.pdf_service.generate_single_page_pdf(
-                self.current_data, 
-                self.current_stats, 
-                filename, 
-                date_range
-            )
-            
-            if success:
-                QMessageBox.information(self, "Berhasil", f"Laporan PDF 1 halaman berhasil dibuat: {filename}")
-            else:
-                QMessageBox.warning(self, "Peringatan", "Gagal membuat PDF. Periksa data dan coba lagi.")
-                
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Gagal membuat PDF: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Gagal membuat PDF lengkap: {str(e)}")
 
 if __name__ == "__main__":
     # Test reports widget

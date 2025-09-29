@@ -1,6 +1,7 @@
 """
 Aplikasi GUI Clean untuk deteksi dan penghitungan mobil menggunakan YOLO
 Versi Ultra Minimalist dan Clean Layout
+Fokus hanya pada deteksi mobil (tidak termasuk bus dan truk)
 """
 
 import sys
@@ -21,6 +22,7 @@ from detector import CarCounter
 from data_input_dialog import DataInputDialog
 from reports_widget import ReportsWidget
 from yolo_asf_processor import YOLOASFProcessor
+from detection_config import DetectionConfig, DEFAULT_CONFIG
 
 class SimpleDropArea(QFrame):
     """Area sederhana untuk drag & drop video"""
@@ -92,6 +94,27 @@ class SimpleDropArea(QFrame):
     def reset(self):
         self.label.setText("Drop video file here or click to select")
 
+class ASFProcessingThread(QThread):
+    """Thread untuk memproses file ASF"""
+    processing_completed = pyqtSignal()
+    processing_error = pyqtSignal(str)
+    
+    def __init__(self, asf_processor, video_path):
+        super().__init__()
+        self.asf_processor = asf_processor
+        self.video_path = video_path
+    
+    def run(self):
+        try:
+            self.asf_processor.process_video(
+                video_path=self.video_path,
+                show_video=False,
+                save_output=False
+            )
+            self.processing_completed.emit()
+        except Exception as e:
+            self.processing_error.emit(str(e))
+
 class VideoProcessor(QThread):
     """Thread untuk memproses video"""
     frame_ready = pyqtSignal(QImage)
@@ -117,11 +140,18 @@ class VideoProcessor(QThread):
         self.car_counter = None
         self.playback_speed = max(0.1, float(playback_speed))  # guard minimal speed
         self._skip_residual = 0.0  # for fractional frame skipping on files
+        
+        # Buat konfigurasi konsisten
+        self.detection_config = DEFAULT_CONFIG.copy()
+        self.detection_config.set_confidence(confidence)
+        self.detection_config.set_iou(iou)
+        self.detection_config.set_device(device)
+        self.detection_config.detection_zone = detection_zone
     
     def run(self):
         try:
-            # Initialize detector
-            self.car_counter = CarCounter(self.model_path)
+            # Initialize detector dengan konfigurasi konsisten
+            self.car_counter = CarCounter(self.model_path, self.detection_config)
             
             # Check if it's a live stream (RTSP/HTTP) or file
             is_live_stream = self._is_live_stream(self.video_path)
@@ -135,12 +165,42 @@ class VideoProcessor(QThread):
             else:
                 # Special handling for ASF files
                 if self._is_asf_file(self.video_path):
-                    cap = cv2.VideoCapture(self.video_path, cv2.CAP_FFMPEG)
-                    # Additional settings for ASF files
-                    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'XVID'))
-                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer for ASF
-                    cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 10000)  # Longer timeout for ASF
-                    cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 10000)
+                    # Try multiple backends for ASF files
+                    cap = None
+                    backends = [cv2.CAP_FFMPEG, cv2.CAP_DSHOW, cv2.CAP_ANY]
+                    
+                    for backend in backends:
+                        try:
+                            cap = cv2.VideoCapture(self.video_path, backend)
+                            if cap.isOpened():
+                                # Test if we can read a frame
+                                ret, test_frame = cap.read()
+                                if ret and test_frame is not None:
+                                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Reset to beginning
+                                    print(f"ASF file opened successfully with backend: {backend}")
+                                    break
+                                else:
+                                    cap.release()
+                                    cap = None
+                        except Exception as e:
+                            if cap:
+                                cap.release()
+                            cap = None
+                            continue
+                    
+                    if cap and cap.isOpened():
+                        # Optimized settings for ASF files
+                        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Minimal buffer
+                        cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 15000)  # Extended timeout
+                        cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 15000)
+                        # Try to set optimal codec
+                        try:
+                            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+                        except:
+                            pass  # Ignore if codec setting fails
+                    else:
+                        # Fallback to default VideoCapture
+                        cap = cv2.VideoCapture(self.video_path)
                 else:
                     cap = cv2.VideoCapture(self.video_path)
             
@@ -168,7 +228,7 @@ class VideoProcessor(QThread):
             # Set detection zone
             self.car_counter.set_detection_zone(self.detection_zone)
             
-            # Set debug mode
+            # Set debug mode - konsisten dengan config
             self.car_counter.set_debug(False)  # Disable debug for performance
             
             # Reset video to beginning only for files
@@ -196,7 +256,7 @@ class VideoProcessor(QThread):
                     
                     consecutive_failures = 0  # Reset failure counter on success
                     
-                    # Process frame with custom parameters
+                    # Process frame dengan parameter konsisten
                     processed_frame, counts = self.car_counter.process_frame(
                         frame, 
                         tracking=True,  # Always use tracking for now
@@ -280,7 +340,8 @@ class VideoProcessor(QThread):
 # ... (kode sebelumnya tetap sama)
 
 class CarCounterApp(QMainWindow):
-    """Main application - Ultra Clean Minimalist Design"""
+    """Main application - Ultra Clean Minimalist Design
+    Fokus hanya pada deteksi mobil (tidak termasuk bus dan truk)"""
     
     def __init__(self):
         super().__init__()
@@ -833,7 +894,8 @@ class CarCounterApp(QMainWindow):
             if file_path.lower().endswith(('.asf', '.wmv')):
                 self.log("ASF/WMV file detected - using optimized processing")
                 self.log("Note: ASF/WMV files may require additional codec support")
-                self.log("Using FFMPEG backend for better ASF compatibility")
+                self.log("Using multiple backends for better ASF compatibility")
+                self.log("Debug mode enabled for ASF troubleshooting")
             
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error selecting video: {str(e)}")
@@ -890,6 +952,7 @@ class CarCounterApp(QMainWindow):
             self.drop_area.label.setText("Drop ASF file here or click to select")
             # Reset drop area
             self.drop_area.reset()
+            self.log("ASF file mode selected - optimized processing enabled")
     
     def on_confidence_changed(self, value):
         """Handle confidence threshold change"""
@@ -924,6 +987,12 @@ class CarCounterApp(QMainWindow):
             if not self.current_video.lower().endswith(('.asf', '.wmv')):
                 QMessageBox.warning(self, "Warning", "Please select a valid ASF/WMV file!")
                 return
+            
+            # Log ASF file info
+            self.log(f"ASF file selected: {os.path.basename(self.current_video)}")
+            self.log("Using dedicated ASF processor with optimized settings")
+            self.log("Debug mode enabled for ASF troubleshooting")
+            self.log("Multiple backend support for better ASF compatibility")
         else:
             QMessageBox.warning(self, "Warning", "Please select video source!")
             return
@@ -980,15 +1049,18 @@ class CarCounterApp(QMainWindow):
     def start_asf_processing(self):
         """Start ASF file processing using dedicated ASF processor"""
         try:
-            model_path = self.model_path = self.model_input.text().strip()
+            model_path = self.model_input.text().strip()
             if not os.path.exists(model_path):
                 QMessageBox.warning(self, "Warning", f"Model file not found: {model_path}")
                 return
             
             self.log("Starting ASF processing with dedicated processor...")
+            self.log(f"ASF file: {os.path.basename(self.current_video)}")
             
-            # Create ASF processor
-            self.asf_processor = YOLOASFProcessor(model_path)
+            # Create ASF processor with debug enabled for troubleshooting
+            config = DEFAULT_CONFIG.copy()
+            config.set_debug(True)  # Enable debug for ASF troubleshooting
+            self.asf_processor = YOLOASFProcessor(model_path, config)
             
             # Update UI for ASF processing
             self.start_btn.setEnabled(False)
@@ -1004,20 +1076,22 @@ class CarCounterApp(QMainWindow):
             self.start_time = None
             self.current_counts = {'total': 0, 'naik': 0, 'turun': 0}
             
-            # Process ASF file
-            self.asf_processor.process_video(
-                video_path=self.current_video,
-                show_video=False,  # We'll handle display in the main app
-                save_output=False
-            )
-            
-            # After processing, show completion dialog
-            self.on_asf_processing_completed()
+            # Process ASF file with error handling in a separate thread
+            self.asf_thread = ASFProcessingThread(self.asf_processor, self.current_video)
+            self.asf_thread.processing_completed.connect(self.on_asf_processing_completed)
+            self.asf_thread.processing_error.connect(self.on_asf_processing_error)
+            self.asf_thread.start()
             
         except Exception as e:
-            self.log(f"ASF processing error: {str(e)}")
-            QMessageBox.critical(self, "Error", f"ASF processing failed: {str(e)}")
+            self.log(f"ASF processing initialization error: {str(e)}")
+            QMessageBox.critical(self, "Error", f"ASF processing initialization failed: {str(e)}")
             self.on_processing_finished()
+    
+    def on_asf_processing_error(self, error_msg):
+        """Handle ASF processing error"""
+        self.log(f"ASF processing error: {error_msg}")
+        QMessageBox.critical(self, "ASF Processing Error", f"Failed to process ASF file: {error_msg}")
+        self.on_processing_finished()
     
     def on_asf_processing_completed(self):
         """Handle ASF processing completion"""
@@ -1037,9 +1111,14 @@ class CarCounterApp(QMainWindow):
                     'Jalur A': counts['up'],
                     'Jalur B': counts['down']
                 })
+                
+                self.log(f"ASF processing completed - Total: {counts['total']}, Up: {counts['up']}, Down: {counts['down']}")
+            else:
+                self.log("ASF processing completed but no counts available")
+                self.current_counts = {'total': 0, 'naik': 0, 'turun': 0}
             
             # Show completion dialog
-            self.log("ASF processing completed - Opening input dialog")
+            self.log("Opening input dialog for ASF data")
             
             dialog = DataInputDialog(self.current_counts, self)
             dialog.data_saved.connect(self.on_data_saved)
@@ -1055,6 +1134,7 @@ class CarCounterApp(QMainWindow):
                 
         except Exception as e:
             self.log(f"Error in ASF completion: {str(e)}")
+            QMessageBox.warning(self, "Warning", f"Error in ASF completion: {str(e)}")
         finally:
             self.on_processing_finished()
     
@@ -1075,6 +1155,9 @@ class CarCounterApp(QMainWindow):
         """Stop processing"""
         if self.video_thread:
             self.video_thread.stop()
+        if hasattr(self, 'asf_thread') and self.asf_thread:
+            self.asf_thread.terminate()
+            self.asf_thread.wait()
         self.on_processing_finished()
     
     def manual_save_data(self):
@@ -1231,6 +1314,9 @@ class CarCounterApp(QMainWindow):
         """Handle application close"""
         if self.video_thread:
             self.video_thread.stop()
+        if hasattr(self, 'asf_thread') and self.asf_thread:
+            self.asf_thread.terminate()
+            self.asf_thread.wait()
         event.accept()
 
 def main():

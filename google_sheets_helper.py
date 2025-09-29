@@ -1,6 +1,7 @@
 """
 Helper module untuk Google Sheets API
 Menggunakan service account credentials untuk mengakses spreadsheet
+Fokus hanya pada deteksi mobil (tidak termasuk bus dan truk)
 """
 
 import os
@@ -11,7 +12,8 @@ from google.oauth2.service_account import Credentials
 from typing import Dict, List, Optional
 
 class GoogleSheetsManager:
-    """Manager untuk operasi Google Sheets"""
+    """Manager untuk operasi Google Sheets
+    Fokus hanya pada deteksi mobil (tidak termasuk bus dan truk)"""
     
     def __init__(self, credentials_path: str = "credentials/credentials.json"):
         """

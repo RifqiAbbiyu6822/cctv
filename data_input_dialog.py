@@ -2,6 +2,7 @@
 Dialog untuk input data kilometer, tanggal, dan periode jam
 Muncul ketika progress 100% atau stop counting
 Enhanced version dengan UI yang lebih modern
+Fokus hanya pada deteksi mobil (tidak termasuk bus dan truk)
 """
 
 import sys
@@ -151,7 +152,8 @@ class SummaryCard(QWidget):
         """)
 
 class DataInputDialog(QDialog):
-    """Dialog untuk input data counting dengan UI modern"""
+    """Dialog untuk input data counting dengan UI modern
+    Fokus hanya pada deteksi mobil (tidak termasuk bus dan truk)"""
     
     data_saved = pyqtSignal(dict)  # Signal ketika data berhasil disimpan
     

@@ -1,6 +1,7 @@
 """
 Aplikasi GUI Clean untuk deteksi dan penghitungan mobil menggunakan YOLO
-Versi Minimalistic dan User-Friendly - FIXED COUNTING
+Versi Minimalistic dan User-Friendly - FIXED COUNTING & CONSISTENT DETECTION
+Fokus hanya pada deteksi mobil (tidak termasuk bus dan truk)
 """
 
 import sys
@@ -15,29 +16,35 @@ from PyQt5.QtCore import QThread, pyqtSignal, Qt
 import numpy as np
 import time
 from ultralytics import YOLO
+from detection_config import DetectionConfig, DEFAULT_CONFIG
 
 class CarCounter:
     """
     Kelas untuk deteksi dan penghitungan mobil dalam video stream - FIXED
+    Fokus hanya pada deteksi mobil (class 0), tidak termasuk bus dan truk
     """
     
-    def __init__(self, model_path):
+    def __init__(self, model_path, config=None):
         """
-        Inisialisasi CarCounter
+        Inisialisasi CarCounter dengan konfigurasi konsisten
         
         Args:
             model_path (str): Path ke model YOLO yang sudah dilatih
+            config (DetectionConfig): Konfigurasi deteksi (optional)
         """
         self.model = YOLO(model_path)
+        
+        # Gunakan konfigurasi yang disediakan atau default
+        self.config = config if config is not None else DEFAULT_CONFIG.copy()
         
         # Counter dan tracking data
         self.counts = {'total': 0, 'up': 0, 'down': 0}
         self.tracked_objects = {}  # {id: {'last_y': y, 'counted': False, 'direction': None}}
         
-        # Line counting setup
+        # Line counting setup - gunakan dari config
         self.counting_line_y = None
         self.line_thickness = 3
-        self.detection_zone = 50  # Zona deteksi di sekitar garis
+        self.detection_zone = self.config.detection_zone
         
         # Performance tracking untuk aplikasi GUI
         self.frame_count = 0
@@ -46,20 +53,19 @@ class CarCounter:
         self.fps_counter = 0
         self.current_fps = 0
         
-        # Debug info
-        self.debug = True
-        
-    def set_counting_line(self, frame_height, line_ratio=0.7):
+    def set_counting_line(self, frame_height, line_ratio=None):
         """
         Set posisi garis penghitungan (default mendekat ke bawah)
         
         Args:
             frame_height: Tinggi frame
-            line_ratio: Rasio posisi garis (0.0-1.0) - 0.7 = 70% dari atas (mendekat ke bawah)
+            line_ratio: Rasio posisi garis (0.0-1.0) - gunakan dari config jika None
         """
+        if line_ratio is None:
+            line_ratio = self.config.line_ratio
         self.counting_line_y = int(frame_height * line_ratio)
-        if self.debug:
-            print(f"Counting line set at y={self.counting_line_y} (70% from top)")
+        if self.config.debug:
+            print(f"Counting line set at y={self.counting_line_y} ({line_ratio*100:.0f}% from top)")
     
     def set_counting_line_position(self, y_position):
         """
@@ -69,7 +75,7 @@ class CarCounter:
             y_position: Posisi Y dalam pixel
         """
         self.counting_line_y = y_position
-        if self.debug:
+        if self.config.debug:
             print(f"Counting line position set to y={self.counting_line_y}")
     
     def set_detection_zone(self, zone_size):
@@ -80,22 +86,29 @@ class CarCounter:
             zone_size: Ukuran zona dalam pixel
         """
         self.detection_zone = zone_size
-        if self.debug:
+        self.config.detection_zone = zone_size  # Update config juga
+        if self.config.debug:
             print(f"Detection zone set to {self.detection_zone} pixels")
     
-    def process_frame(self, frame, tracking=True, confidence=0.25, iou=0.45):
+    def process_frame(self, frame, tracking=True, confidence=None, iou=None):
         """
-        Proses frame untuk deteksi dan penghitungan mobil
+        Proses frame untuk deteksi dan penghitungan mobil dengan konfigurasi konsisten
         
         Args:
             frame: Frame video dari OpenCV
             tracking (bool): Apakah menggunakan tracking atau tidak
-            confidence (float): Confidence threshold untuk deteksi
-            iou (float): IoU threshold untuk NMS
+            confidence (float): Confidence threshold (gunakan dari config jika None)
+            iou (float): IoU threshold (gunakan dari config jika None)
             
         Returns:
             tuple: (frame_processed, counts)
         """
+        # Gunakan parameter dari config jika tidak disediakan
+        if confidence is None:
+            confidence = self.config.confidence
+        if iou is None:
+            iou = self.config.iou
+        
         # Initialize timing untuk performa tracking
         if self.start_time is None:
             self.start_time = time.time()
@@ -116,27 +129,21 @@ class CarCounter:
         if self.counting_line_y is None:
             self.set_counting_line(frame.shape[0])
         
-        # Deteksi mobil dengan YOLO - menggunakan parameter yang bisa disesuaikan
+        # Deteksi mobil dengan YOLO - menggunakan konfigurasi konsisten
         if tracking:
-            results = self.model.track(
-                frame, 
-                persist=True, 
-                classes=[0, 5, 7],  # Classes: car, bus, truck dalam COCO dataset
-                tracker="bytetrack.yaml",
-                conf=confidence,   # Confidence threshold dari parameter
-                iou=iou,          # IoU threshold dari parameter
-                verbose=False,    # Disable verbose untuk performa
-                device='cpu' if not self.debug else None  # Force CPU untuk stabilitas GUI
-            )
+            # Gunakan parameter tracking yang konsisten dari config
+            tracking_params = self.config.get_tracking_params()
+            tracking_params['conf'] = confidence
+            tracking_params['iou'] = iou
+            
+            results = self.model.track(frame, **tracking_params)
         else:
-            results = self.model(
-                frame,
-                classes=[0, 5, 7],  # Classes: car, bus, truck
-                conf=confidence,
-                iou=iou,
-                verbose=False,
-                device='cpu' if not self.debug else None
-            )
+            # Gunakan parameter deteksi yang konsisten dari config
+            detection_params = self.config.get_detection_params()
+            detection_params['conf'] = confidence
+            detection_params['iou'] = iou
+            
+            results = self.model(frame, **detection_params)
         
         # Gambar garis penghitungan
         self.draw_counting_line(frame)
@@ -248,7 +255,7 @@ class CarCounter:
                 obj_data['counted'] = True
                 obj_data['direction'] = direction
                 
-                if self.debug:
+                if self.config.debug:
                     print(f"Vehicle ID:{track_id} counted going {direction}. Total: {self.counts['total']}")
     
     def _cleanup_tracked_objects(self):
@@ -321,7 +328,7 @@ class CarCounter:
         self.current_fps = 0
         self.last_fps_time = time.time()
         
-        if self.debug:
+        if self.config.debug:
             print("Counter reset!")
     
     def get_count(self):
@@ -342,4 +349,13 @@ class CarCounter:
     
     def set_debug(self, debug=True):
         """Enable/disable debug mode"""
-        self.debug = debug
+        self.config.set_debug(debug)
+    
+    def update_config(self, confidence=None, iou=None, device=None):
+        """Update konfigurasi deteksi"""
+        if confidence is not None:
+            self.config.set_confidence(confidence)
+        if iou is not None:
+            self.config.set_iou(iou)
+        if device is not None:
+            self.config.set_device(device)

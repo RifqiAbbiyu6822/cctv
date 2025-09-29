@@ -8,6 +8,7 @@ Mengikuti ringkasan alur kerja:
 5. Akhiri: Lepaskan objek VideoCapture dan tutup jendela tampilan
 
 Terintegrasi dengan aplikasi CarCounter yang sudah ada
+Fokus hanya pada deteksi mobil (tidak termasuk bus dan truk)
 """
 
 import cv2
@@ -17,20 +18,23 @@ import time
 import os
 import sys
 from detector import CarCounter
+from detection_config import DetectionConfig, DEFAULT_CONFIG
 
 class YOLOASFProcessor:
     """
     Kelas untuk memproses video ASF dengan YOLO detection
     Mengikuti alur kerja yang telah dirangkum
     Terintegrasi dengan CarCounter yang sudah ada
+    Fokus hanya pada deteksi mobil (tidak termasuk bus dan truk)
     """
     
-    def __init__(self, model_path="weights/best.pt"):
+    def __init__(self, model_path="weights/best.pt", config=None):
         """
-        Inisialisasi processor
+        Inisialisasi processor dengan konfigurasi konsisten
         
         Args:
             model_path (str): Path ke model YOLO
+            config (DetectionConfig): Konfigurasi deteksi (optional)
         """
         self.model_path = model_path
         self.car_counter = None
@@ -38,18 +42,21 @@ class YOLOASFProcessor:
         self.frame_count = 0
         self.start_time = None
         
-        # Load CarCounter yang sudah ada
+        # Gunakan konfigurasi yang disediakan atau default
+        self.config = config if config is not None else DEFAULT_CONFIG.copy()
+        
+        # Load CarCounter yang sudah ada dengan konfigurasi konsisten
         self.load_car_counter()
     
     def load_car_counter(self):
-        """Load CarCounter yang sudah ada"""
+        """Load CarCounter yang sudah ada dengan konfigurasi konsisten"""
         try:
             if not os.path.exists(self.model_path):
                 print(f"Model file not found: {self.model_path}")
                 print("Using default YOLOv8n model...")
-                self.car_counter = CarCounter('yolov8n.pt')
+                self.car_counter = CarCounter('yolov8n.pt', self.config)
             else:
-                self.car_counter = CarCounter(self.model_path)
+                self.car_counter = CarCounter(self.model_path, self.config)
             print(f"CarCounter loaded successfully: {self.model_path}")
         except Exception as e:
             print(f"Error loading CarCounter: {e}")
@@ -58,6 +65,7 @@ class YOLOASFProcessor:
     def open_video(self, video_path):
         """
         Langkah 1: Baca File - Gunakan cv2.VideoCapture untuk membuka video ASF
+        Menggunakan konfigurasi yang sama dengan aplikasi utama untuk konsistensi
         
         Args:
             video_path (str): Path ke video ASF
@@ -66,8 +74,49 @@ class YOLOASFProcessor:
             bool: True jika berhasil membuka video
         """
         try:
-            # Buka video dengan cv2.VideoCapture
-            self.cap = cv2.VideoCapture(video_path)
+            # Cek apakah file ASF
+            is_asf = video_path.lower().endswith(('.asf', '.wmv'))
+            
+            if is_asf:
+                # Try multiple backends for ASF files (same as app.py)
+                self.cap = None
+                backends = [cv2.CAP_FFMPEG, cv2.CAP_DSHOW, cv2.CAP_ANY]
+                
+                for backend in backends:
+                    try:
+                        self.cap = cv2.VideoCapture(video_path, backend)
+                        if self.cap.isOpened():
+                            # Test if we can read a frame
+                            ret, test_frame = self.cap.read()
+                            if ret and test_frame is not None:
+                                self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Reset to beginning
+                                print(f"ASF file opened successfully with backend: {backend}")
+                                break
+                            else:
+                                self.cap.release()
+                                self.cap = None
+                    except Exception as e:
+                        if self.cap:
+                            self.cap.release()
+                        self.cap = None
+                        continue
+                
+                if self.cap and self.cap.isOpened():
+                    # Optimized settings for ASF files (same as app.py)
+                    self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Minimal buffer
+                    self.cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 15000)  # Extended timeout
+                    self.cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 15000)
+                    # Try to set optimal codec
+                    try:
+                        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+                    except:
+                        pass  # Ignore if codec setting fails
+                else:
+                    # Fallback to default VideoCapture
+                    self.cap = cv2.VideoCapture(video_path)
+            else:
+                # Standard VideoCapture for non-ASF files
+                self.cap = cv2.VideoCapture(video_path)
             
             if not self.cap.isOpened():
                 print(f"Error: Cannot open video file {video_path}")
@@ -83,6 +132,8 @@ class YOLOASFProcessor:
             print(f"  - FPS: {fps}")
             print(f"  - Frame count: {frame_count}")
             print(f"  - Resolution: {width}x{height}")
+            if is_asf:
+                print(f"  - ASF file detected and optimized")
             
             return True
             
@@ -125,15 +176,29 @@ class YOLOASFProcessor:
         
         try:
             # Langkah 2: Loop Bingkai - Ambil setiap bingkai video satu per satu dengan cap.read()
+            consecutive_failures = 0
+            max_failures = 30  # Max consecutive failures before giving up
+            
             while True:
                 if not paused:
                     ret, frame = self.cap.read()
                     
                     if not ret:
-                        print("End of video reached")
-                        break
+                        consecutive_failures += 1
+                        if consecutive_failures >= max_failures:
+                            print("End of video reached or too many consecutive failures")
+                            break
+                        print(f"Failed to read frame (attempt {consecutive_failures}/{max_failures})")
+                        time.sleep(0.1)  # Wait a bit before retrying
+                        continue
                     
+                    consecutive_failures = 0  # Reset failure counter on success
                     self.frame_count += 1
+                    
+                    # Validasi frame
+                    if frame is None or frame.size == 0:
+                        print(f"Warning: Empty frame at {self.frame_count}")
+                        continue
                     
                     # Langkah 3: Deteksi - Berikan bingkai yang sudah diekstrak ke model YOLO
                     processed_frame = self.detect_objects(frame)
@@ -178,22 +243,34 @@ class YOLOASFProcessor:
             numpy.ndarray: Frame dengan hasil deteksi
         """
         try:
+            # Validasi frame
+            if frame is None or frame.size == 0:
+                print("Warning: Empty frame received")
+                return frame
+            
             # Gunakan CarCounter untuk deteksi yang konsisten dengan aplikasi utama
             if self.car_counter:
+                # Gunakan parameter dari config untuk konsistensi
                 processed_frame, counts = self.car_counter.process_frame(
                     frame, 
                     tracking=True,
-                    confidence=0.25,
-                    iou=0.45
+                    confidence=self.config.confidence,
+                    iou=self.config.iou
                 )
                 
                 # Tambahkan informasi tambahan
                 self.add_info_overlay(processed_frame)
                 
+                # Debug info untuk ASF files
+                if self.config.debug and self.frame_count % 30 == 0:
+                    print(f"ASF Detection - Frame {self.frame_count}: {counts}")
+                
                 return processed_frame
             else:
                 # Fallback ke model langsung jika CarCounter tidak tersedia
-                results = self.car_counter.model(frame, verbose=False)
+                # Gunakan parameter dari config untuk konsistensi
+                detection_params = self.config.get_detection_params()
+                results = self.car_counter.model(frame, **detection_params)
                 
                 # Proses hasil deteksi
                 if results and len(results) > 0:
@@ -211,7 +288,11 @@ class YOLOASFProcessor:
                 
         except Exception as e:
             print(f"Error in detection: {e}")
-            return frame
+            # Return original frame with error info
+            error_frame = frame.copy()
+            cv2.putText(error_frame, f"Detection Error: {str(e)[:50]}", 
+                       (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+            return error_frame
     
     def add_info_overlay(self, frame):
         """Tambahkan informasi overlay pada frame"""
